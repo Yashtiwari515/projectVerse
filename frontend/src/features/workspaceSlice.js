@@ -1,9 +1,19 @@
-import { createSlice } from "@reduxjs/toolkit";
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { dummyWorkspaces } from "../assets/assets";
+import api from "../configs/api";
+
+export const fetchWorkspaces = createAsyncThunk(
+  "workspace/fetchWorkspaces",
+  async () => {
+    const { data } = await api.get("/api/workspaces");
+    return data.workspaces || [];
+  }
+);
+
 
 const initialState = {
-    workspaces: dummyWorkspaces || [],
-    currentWorkspace: dummyWorkspaces[1],
+    workspaces: [],
+    currentWorkspace: null,
     loading: false,
 };
 
@@ -103,7 +113,28 @@ const workspaceSlice = createSlice({
             );
         }
 
-    }
+    },
+    extraReducers: (builder) => {
+        builder
+            .addCase(fetchWorkspaces.pending, (state) => {
+                state.loading = true;
+            })
+            .addCase(fetchWorkspaces.fulfilled, (state, action) => {
+                state.loading = false;
+                state.workspaces = action.payload;
+
+                // set current workspace from localStorage or default to first workspace
+                const storedWorkspaceId = localStorage.getItem("currentWorkspaceId");
+                if (storedWorkspaceId) {
+                    state.currentWorkspace = state.workspaces.find((w) => w.id === storedWorkspaceId) || state.workspaces[0];
+                } else {
+                    state.currentWorkspace = state.workspaces[0];
+                }
+            })
+            .addCase(fetchWorkspaces.rejected, (state) => {
+                state.loading = false;
+            });
+    },
 });
 
 export const { setWorkspaces, setCurrentWorkspace, addWorkspace, updateWorkspace, deleteWorkspace, addProject, addTask, updateTask, deleteTask } = workspaceSlice.actions;

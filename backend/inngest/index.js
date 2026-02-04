@@ -1,5 +1,6 @@
 import { Inngest } from "inngest";
 import { prisma } from "../lib/prisma.js";
+import sendEmail from "../configs/nodemailer.js";
 
 export const inngest = new Inngest({ id: "project-management" });
 
@@ -121,5 +122,66 @@ export const syncWorkspaceMemberCreation = inngest.createFunction(
   }
 );
 
+
+export const sendTaskAssignmentEmail = inngest.createFunction(
+  { id: "send-task-assignment-email" },
+  { event: "app/task.assigned" },
+  async ({ event, step }) => {
+    const { taskId, origin } = event.data;
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignee: true },
+    });
+
+    if (!task || !task.assignee) return;
+
+    await sendEmail({
+      to: task.assignee.email,
+      subject: `New Task Assigned: ${task.title}`,
+      body: `
+        <h1>You have been assigned a new task!</h1>
+        <p><strong>Title:</strong> ${task.title}</p>
+        <p><strong>Description:</strong> ${task.description || "No description provided."}</p>
+        <p><strong>Due Date:</strong> ${
+          task.due_date ? new Date(task.due_date).toLocaleDateString() : "No due date set."
+        }</p>
+        <p>View the task <a href="${origin}">here</a>.</p>
+      `,
+    });
+
+    if (!task.due_date) return;
+
+    const dueDate = new Date(task.due_date);
+
+    if (dueDate <= new Date()) return;
+
+    await step.sleepUntil("wait-for-due-date", dueDate);
+
+    await step.run("check-if-task-completed", async () => {
+      const latestTask = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: { assignee: true },
+      });
+
+      if (!latestTask || !latestTask.assignee) return;
+
+      if (latestTask.status !== "DONE") {
+        await sendEmail({
+          to: latestTask.assignee.email,
+          subject: `Task Due Today: ${latestTask.title}`,
+          body: `
+            <h1>Reminder: Task Due Today!</h1>
+            <p><strong>Title:</strong> ${latestTask.title}</p>
+            <p><strong>Description:</strong> ${latestTask.description || "No description provided."}</p>
+            <p>Please make sure to complete the task by the end of the day.</p>
+          `,
+        });
+      }
+    });
+  }
+);
+
+
 // IMPORTANT — export function here
-export const functions = [syncUserCreation, syncUserDeletion, syncUserUpdate, syncWorkspaceCreation, syncWorkspaceDeletion, syncWorkspaceUpdate, syncWorkspaceMemberCreation ];
+export const functions = [syncUserCreation, syncUserDeletion, syncUserUpdate, syncWorkspaceCreation, syncWorkspaceDeletion, syncWorkspaceUpdate, syncWorkspaceMemberCreation, sendTaskAssignmentEmail];
