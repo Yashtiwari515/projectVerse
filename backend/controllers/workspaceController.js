@@ -1,33 +1,57 @@
 import { prisma } from "../lib/prisma.js";
 export const getUserWorkspaces = async (req, res) => {
   try {
-    const {userId} = await req.auth();
-    const workspaces = await prisma.workspace.findMany({
+    const { userId, orgId } = await req.auth(); // Clerk se details mili
+
+    // 1. Pehle normal membership check karo
+    let workspaces = await prisma.workspace.findMany({
       where: {
-        members: {
-          some: { userId },
-        },
+        members: { some: { userId } },
       },
       include: {
         members: { include: { user: true } },
-        projects: {
-          include: {
-            tasks: {
-              include: {
-                assignee: true,
-                comments: { include: { user: true } },
-              },
-            },
-            members: { include: { user: true } },
-          },
-        },
+        projects: { /* ... your existing include ... */ },
         owner: true,
       },
     });
 
+    // 2. AGAR naya user hai aur memberships 0 hain
+    if (workspaces.length === 0 && orgId) {
+      console.log("DEBUG: New user detected, finding workspace by Org ID");
+      
+      // Kyunki schema mein clerkOrgId nahi hai, hum 'owner' ke basis par 
+      // us organization ka workspace dhoondenge. 
+      // (Yahan aap workspace 'id' ko Clerk Org ID ke barabar rakhte ho ya slug se match karte ho)
+      workspaces = await prisma.workspace.findMany({
+        where: {
+          // Logic: Agar aapne workspace create karte waqt uski ID = Clerk Org ID rakhi hai
+          id: orgId 
+        },
+        include: {
+          members: { include: { user: true } },
+          projects: { /* ... same include ... */ },
+          owner: true,
+        },
+      });
+      
+      // 3. Agar mil gaya, toh user ko automatically member table mein add kardo (Auto-Join)
+      if (workspaces.length > 0) {
+        await prisma.workspaceMember.upsert({
+          where: {
+            userId_workspaceId: { userId, workspaceId: workspaces[0].id }
+          },
+          update: {},
+          create: {
+            userId: userId,
+            workspaceId: workspaces[0].id,
+            role: "MEMBER"
+          }
+        });
+      }
+    }
+
     res.json({ workspaces });
   } catch (error) {
-    console.error("Error fetching user workspaces:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

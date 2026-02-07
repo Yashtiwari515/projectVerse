@@ -109,14 +109,37 @@ export const syncWorkspaceUpdate = inngest.createFunction(
 
 export const syncWorkspaceMemberCreation = inngest.createFunction(
   { id: "sync-workspace-member-from-clerk" },
-  { event: "clerk/organizationInvitation.created" },
+  { event: "clerk/organizationMembership.created" }, 
   async ({ event }) => {
     const { data } = event;
-    await prisma.workspaceMember.create({
-      data: {
-        userId: data.user_id,
-        workspaceId: data.organization_id,
-        role: String(data.role_name).toUpperCase(),
+
+    // Clerk se user ID nikalne ka safe tarika
+    const clerkUserId = data.public_user_data?.user_id || data.user_id;
+    const orgId = data.organization?.id;
+
+    if (!clerkUserId || !orgId) return;
+
+    // Role format: 'org:member' ko 'MEMBER' banana
+    let rawRole = data.role || "MEMBER";
+    const formattedRole = rawRole.includes(":") 
+      ? rawRole.split(":")[1].toUpperCase() 
+      : rawRole.toUpperCase();
+
+    // Upsert use karna best hai taaki duplicate entry pe crash na ho
+    await prisma.workspaceMember.upsert({
+      where: {
+        userId_workspaceId: {
+          userId: clerkUserId,
+          workspaceId: orgId,
+        },
+      },
+      update: {
+        role: formattedRole === "ADMIN" ? "ADMIN" : "MEMBER",
+      },
+      create: {
+        userId: clerkUserId,
+        workspaceId: orgId,
+        role: formattedRole === "ADMIN" ? "ADMIN" : "MEMBER",
       },
     });
   }
