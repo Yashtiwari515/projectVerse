@@ -21,10 +21,14 @@ const Layout = () => {
     }, [])
 
     useEffect(() => {
-        if(isLoaded && user && workspaces.length === 0){
-            dispatch(fetchWorkspaces({getToken}))
-        }
-    }, [isLoaded, user])
+        const getWorkspacesData = async () => {
+            if (isLoaded && user && workspaces.length === 0) {
+                const token = await getToken({ template: null }); // Token string nikaali
+                dispatch(fetchWorkspaces(token)); // Ab token pass kiya
+            }
+        };
+        getWorkspacesData();
+    }, [isLoaded, user, dispatch, getToken, workspaces.length]);
 
     if(!user){
         return (
