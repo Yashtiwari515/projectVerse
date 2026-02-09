@@ -47,7 +47,7 @@ export const createTask = async (req, res) => {
       },
     });
 
-    const origin = req.headers.origin || "http://localhost:5173";
+    const origin = req.headers.origin || process.env.FRONTEND_URL ;
 
     await inngest.send({
       name: "app/task.assigned",
