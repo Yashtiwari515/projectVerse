@@ -19,8 +19,19 @@ const Team = () => {
     );
 
     useEffect(() => {
+        // Safe check for members
         setUsers(currentWorkspace?.members || []);
-        setTasks(currentWorkspace?.projects?.reduce((acc, project) => [...acc, ...project.tasks], []) || []);
+        
+        // Safe check for projects and tasks
+        const allTasks = currentWorkspace?.projects?.reduce((acc, project) => {
+            // Check if project and project.tasks both exist and are arrays
+            if (project && Array.isArray(project.tasks)) {
+                return [...acc, ...project.tasks];
+            }
+            return acc;
+        }, []) || [];
+
+        setTasks(allTasks);
     }, [currentWorkspace]);
 
     return (

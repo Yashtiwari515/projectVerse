@@ -5,8 +5,13 @@ import { prisma } from "../lib/prisma.js";
 export const addComment = async (req, res) => {
   try {
     const { userId } = await req.auth();
-    const { taskId } = req.params;
+    const { taskId } = req.params; // URL seTaskId lega
     const { content } = req.body;
+
+    // Safety Check: Agar ID nahi aayi toh Prisma tak mat jao
+    if (!taskId || taskId === "undefined") {
+      return res.status(400).json({ message: "Task ID is missing in request params" });
+    }
 
     if (!content) {
       return res.status(400).json({ message: "Comment content required" });
@@ -15,21 +20,14 @@ export const addComment = async (req, res) => {
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       include: {
-        project: {
-          include: {
-            members: true,
-          },
-        },
+        project: { include: { members: true } },
       },
     });
 
     if (!task) return res.status(404).json({ message: "Task not found" });
 
     const isMember = task.project.members.some((m) => m.userId === userId);
-
-    if (!isMember) {
-      return res.status(403).json({ message: "Not a project member" });
-    }
+    if (!isMember) return res.status(403).json({ message: "Not a project member" });
 
     const comment = await prisma.comment.create({
       data: {

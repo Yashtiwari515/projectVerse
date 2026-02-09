@@ -47,6 +47,8 @@ export const createTask = async (req, res) => {
       },
     });
 
+    const origin = req.headers.origin || "http://localhost:5173";
+
     await inngest.send({
       name: "app/task.assigned",
       data: {
@@ -68,7 +70,7 @@ export const updateTask = async (req, res) => {
   try {
     const { userId } = await req.auth();
     const { taskId } = req.params;
-    const { title, description, type, status, assigneeId, due_date, priority } = req.body;
+    const body = req.body; // Poora body object le lo
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -81,25 +83,37 @@ export const updateTask = async (req, res) => {
       return res.status(404).json({ message: "Task not found" });
     }
 
+    // Check authorization
     if (task.project.team_lead !== userId) {
       return res.status(403).json({ message: "Only team lead can update tasks" });
     }
 
-    if (assigneeId && !task.project.members.some((m) => m.userId === assigneeId)) {
+    // Validate assignee if it's being updated
+    if (body.assigneeId && !task.project.members.some((m) => m.userId === body.assigneeId)) {
       return res.status(403).json({ message: "Assignee must be project member" });
+    }
+
+    // --- FIX: Dynamic Data Object ---
+    // Hum sirf wahi fields update karenge jo request body mein aayi hain
+    const updateData = {};
+    
+    const fields = ['title', 'description', 'type', 'status', 'assigneeId', 'priority'];
+    
+    fields.forEach(field => {
+        if (body[field] !== undefined) {
+            updateData[field] = body[field];
+        }
+    });
+
+    // Handle due_date specifically
+    if (body.due_date !== undefined) {
+        // Agar null bhej rahe ho toh null, warna Date object
+        updateData.due_date = body.due_date ? new Date(body.due_date) : null;
     }
 
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
-      data: {
-        title,
-        description,
-        type,
-        status,
-        assigneeId,
-        priority,
-        due_date: due_date ? new Date(due_date) : null,
-      },
+      data: updateData, // Sirf valid fields jayengi
       include: {
         assignee: true,
       },
@@ -107,7 +121,7 @@ export const updateTask = async (req, res) => {
 
     res.json(updatedTask);
   } catch (error) {
-    console.error(error);
+    console.error("Prisma Update Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -117,30 +131,23 @@ export const updateTask = async (req, res) => {
 export const deleteTask = async (req, res) => {
   try {
     const { userId } = await req.auth();
-    const { taskId } = req.params;
+    const { taskIds } = req.body; // Frontend se array lein
 
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      include: {
-        project: { include: { members: true } },
+    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ message: "No task IDs provided" });
+    }
+
+    // Pehle check karein ki user authorized hai ya nahi (optional but recommended)
+    // Direct deleteMany use karein
+    await prisma.task.deleteMany({
+      where: {
+        id: { in: taskIds },
+        // Security: Ensure user sirf apne project ke tasks delete kare
+        project: { team_lead: userId } 
       },
     });
 
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
-    const isAdmin = task.project.members.some(
-      (m) => m.userId === userId && m.role === "ADMIN"
-    );
-
-    if (!isAdmin && task.project.team_lead !== userId) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    await prisma.task.delete({ where: { id: taskId } });
-
-    res.json({ message: "Task deleted" });
+    res.json({ message: "Tasks deleted successfully", taskIds });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: error.message });

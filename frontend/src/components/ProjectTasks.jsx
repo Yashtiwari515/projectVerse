@@ -5,6 +5,8 @@ import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { deleteTask, updateTask } from "../features/workspaceSlice";
 import { Bug, CalendarIcon, GitCommit, MessageSquare, Square, Trash, XIcon, Zap } from "lucide-react";
+import { useAuth } from "@clerk/clerk-react";
+import api from "../configs/api";
 
 const typeIcons = {
     BUG: { icon: Bug, color: "text-red-600 dark:text-red-400" },
@@ -21,6 +23,7 @@ const priorityTexts = {
 };
 
 const ProjectTasks = ({ tasks }) => {
+    const { getToken } = useAuth();
     const dispatch = useDispatch();
     const navigate = useNavigate();
     const [selectedTasks, setSelectedTasks] = useState([]);
@@ -33,18 +36,22 @@ const ProjectTasks = ({ tasks }) => {
     });
 
     const assigneeList = useMemo(
-        () => Array.from(new Set(tasks.map((t) => t.assignee?.name).filter(Boolean))),
+        () => Array.from(new Set(tasks.map((t) => 
+            t.assignee?.name || t.assignee?.email?.split('@')[0] || "Unassigned"
+        ).filter(Boolean))),
         [tasks]
     );
 
     const filteredTasks = useMemo(() => {
         return tasks.filter((task) => {
             const { status, type, priority, assignee } = filters;
+            const taskAssigneeName = task.assignee?.name || task.assignee?.email?.split('@')[0] || "Unassigned";
+            
             return (
                 (!status || task.status === status) &&
                 (!type || task.type === type) &&
                 (!priority || task.priority === priority) &&
-                (!assignee || task.assignee?.name === assignee)
+                (!assignee || taskAssigneeName === assignee)
             );
         });
     }, [filters, tasks]);
@@ -56,46 +63,50 @@ const ProjectTasks = ({ tasks }) => {
 
     const handleStatusChange = async (taskId, newStatus) => {
         try {
+            const token = await getToken();
             toast.loading("Updating status...");
-
-            //  Simulate API call
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            
+            await api.put(`/api/tasks/${taskId}`, { status: newStatus }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
             let updatedTask = structuredClone(tasks.find((t) => t.id === taskId));
             updatedTask.status = newStatus;
             dispatch(updateTask(updatedTask));
 
-            toast.dismissAll();
+            toast.dismiss();
             toast.success("Task status updated successfully");
         } catch (error) {
-            toast.dismissAll();
+            console.error(error);
+            toast.dismiss();
             toast.error(error?.response?.data?.message || error.message);
         }
     };
 
     const handleDelete = async () => {
         try {
-            const confirm = window.confirm("Are you sure you want to delete the selected tasks?");
-            if (!confirm) return;
+            if (!window.confirm("Are you sure you want to delete the selected tasks?")) return;
 
+            const token = await getToken();
             toast.loading("Deleting tasks...");
-
-            //  Simulate API call
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await api.post("/api/tasks/delete", { taskIds: selectedTasks }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
             dispatch(deleteTask(selectedTasks));
-
-            toast.dismissAll();
+            setSelectedTasks([]);
+            toast.dismiss();
             toast.success("Tasks deleted successfully");
         } catch (error) {
-            toast.dismissAll();
+            console.error(error);
+            toast.dismiss();
             toast.error(error?.response?.data?.message || error.message);
         }
     };
 
     return (
         <div>
-            {/* Filters */}
+            {/* Filters Section */}
             <div className="flex flex-wrap gap-4 mb-4">
                 {["status", "type", "priority", "assignee"].map((name) => {
                     const options = {
@@ -125,7 +136,7 @@ const ProjectTasks = ({ tasks }) => {
                         ],
                     };
                     return (
-                        <select key={name} name={name} onChange={handleFilterChange} className=" border not-dark:bg-white border-zinc-300 dark:border-zinc-800 outline-none px-3 py-1 rounded text-sm text-zinc-900 dark:text-zinc-200" >
+                        <select key={name} name={name} value={filters[name]} onChange={handleFilterChange} className="border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-800 outline-none px-3 py-1 rounded text-sm text-zinc-900 dark:text-zinc-200" >
                             {options[name].map((opt, idx) => (
                                 <option key={idx} value={opt.value}>{opt.label}</option>
                             ))}
@@ -133,32 +144,35 @@ const ProjectTasks = ({ tasks }) => {
                     );
                 })}
 
-                {/* Reset filters */}
                 {(filters.status || filters.type || filters.priority || filters.assignee) && (
-                    <button type="button" onClick={() => setFilters({ status: "", type: "", priority: "", assignee: "" })} className="px-3 py-1 flex items-center gap-2 rounded bg-gradient-to-br from-purple-400 to-purple-500 text-zinc-100 dark:text-zinc-200 text-sm transition-colors" >
+                    <button onClick={() => setFilters({ status: "", type: "", priority: "", assignee: "" })} className="px-3 py-1 flex items-center gap-2 rounded bg-zinc-200 dark:bg-zinc-800 text-sm">
                         <XIcon className="size-3" /> Reset
                     </button>
                 )}
 
                 {selectedTasks.length > 0 && (
-                    <button type="button" onClick={handleDelete} className="px-3 py-1 flex items-center gap-2 rounded bg-gradient-to-br from-indigo-400 to-indigo-500 text-zinc-100 dark:text-zinc-200 text-sm transition-colors" >
-                        <Trash className="size-3" /> Delete
+                    <button onClick={handleDelete} className="px-3 py-1 flex items-center gap-2 rounded bg-red-500 text-white text-sm">
+                        <Trash className="size-3" /> Delete ({selectedTasks.length})
                     </button>
                 )}
             </div>
 
-            {/* Tasks Table */}
-            <div className="overflow-auto rounded-lg lg:border border-zinc-300 dark:border-zinc-800">
+            <div className="overflow-auto rounded-lg border border-zinc-300 dark:border-zinc-800">
                 <div className="w-full">
-                    {/* Desktop/Table View */}
+                    {/* Desktop View */}
                     <div className="hidden lg:block overflow-x-auto">
-                        <table className="min-w-full text-sm text-left not-dark:bg-white text-zinc-900 dark:text-zinc-300">
-                            <thead className="text-xs uppercase dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 ">
+                        <table className="min-w-full text-sm text-left bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-300">
+                            <thead className="text-xs uppercase bg-zinc-50 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400">
                                 <tr>
-                                    <th className="pl-2 pr-1">
-                                        <input onChange={() => selectedTasks.length > 1 ? setSelectedTasks([]) : setSelectedTasks(tasks.map((t) => t.id))} checked={selectedTasks.length === tasks.length} type="checkbox" className="size-3 accent-zinc-600 dark:accent-zinc-500" />
+                                    <th className="pl-4 py-3 w-10">
+                                        <input 
+                                            type="checkbox" 
+                                            onChange={() => selectedTasks.length === filteredTasks.length ? setSelectedTasks([]) : setSelectedTasks(filteredTasks.map(t => t.id))}
+                                            checked={selectedTasks.length > 0 && selectedTasks.length === filteredTasks.length}
+                                            className="size-3 accent-zinc-600" 
+                                        />
                                     </th>
-                                    <th className="px-4 pl-0 py-3">Title</th>
+                                    <th className="px-4 py-3">Title</th>
                                     <th className="px-4 py-3">Type</th>
                                     <th className="px-4 py-3">Priority</th>
                                     <th className="px-4 py-3">Status</th>
@@ -169,28 +183,44 @@ const ProjectTasks = ({ tasks }) => {
                             <tbody>
                                 {filteredTasks.length > 0 ? (
                                     filteredTasks.map((task) => {
+                                        const isDone = task.status === "DONE";
                                         const { icon: Icon, color } = typeIcons[task.type] || {};
                                         const { background, prioritycolor } = priorityTexts[task.priority] || {};
 
                                         return (
-                                            <tr key={task.id} onClick={() => navigate(`/taskDetails?projectId=${task.projectId}&taskId=${task.id}`)} className=" border-t border-zinc-300 dark:border-zinc-800 group hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-all cursor-pointer" >
-                                                <td onClick={e => e.stopPropagation()} className="pl-2 pr-1">
-                                                    <input type="checkbox" className="size-3 accent-zinc-600 dark:accent-zinc-500" onChange={() => selectedTasks.includes(task.id) ? setSelectedTasks(selectedTasks.filter((i) => i !== task.id)) : setSelectedTasks((prev) => [...prev, task.id])} checked={selectedTasks.includes(task.id)} />
+                                            <tr 
+                                                key={task.id} 
+                                                onClick={() => navigate(`/taskDetails?projectId=${task.projectId}&taskId=${task.id}`)} 
+                                                className={`border-t border-zinc-300 dark:border-zinc-800 transition-all cursor-pointer
+                                                    ${isDone 
+                                                        ? "bg-emerald-50/40 dark:bg-emerald-900/10 opacity-70" 
+                                                        : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                                                    }`}
+                                            >
+                                                <td onClick={e => e.stopPropagation()} className="pl-4 py-2">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={selectedTasks.includes(task.id)}
+                                                        onChange={() => selectedTasks.includes(task.id) ? setSelectedTasks(selectedTasks.filter(id => id !== task.id)) : setSelectedTasks([...selectedTasks, task.id])}
+                                                        className="size-3 accent-zinc-600" 
+                                                    />
                                                 </td>
-                                                <td className="px-4 pl-0 py-2">{task.title}</td>
+                                                <td className={`px-4 py-2 font-medium ${isDone ? "line-through text-zinc-500" : ""}`}>
+                                                    {task.title}
+                                                </td>
                                                 <td className="px-4 py-2">
                                                     <div className="flex items-center gap-2">
                                                         {Icon && <Icon className={`size-4 ${color}`} />}
-                                                        <span className={`uppercase text-xs ${color}`}>{task.type}</span>
+                                                        <span className={`uppercase text-[10px] font-bold ${color}`}>{task.type}</span>
                                                     </div>
                                                 </td>
                                                 <td className="px-4 py-2">
-                                                    <span className={`text-xs px-2 py-1 rounded ${background} ${prioritycolor}`}>
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isDone ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400" : `${background} ${prioritycolor}`}`}>
                                                         {task.priority}
                                                     </span>
                                                 </td>
                                                 <td onClick={e => e.stopPropagation()} className="px-4 py-2">
-                                                    <select name="status" onChange={(e) => handleStatusChange(task.id, e.target.value)} value={task.status} className="group-hover:ring ring-zinc-100 outline-none px-2 pr-4 py-1 rounded text-sm text-zinc-900 dark:text-zinc-200 cursor-pointer" >
+                                                    <select value={task.status} onChange={(e) => handleStatusChange(task.id, e.target.value)} className="bg-transparent outline-none text-sm cursor-pointer font-medium">
                                                         <option value="TODO">To Do</option>
                                                         <option value="IN_PROGRESS">In Progress</option>
                                                         <option value="DONE">Done</option>
@@ -198,81 +228,67 @@ const ProjectTasks = ({ tasks }) => {
                                                 </td>
                                                 <td className="px-4 py-2">
                                                     <div className="flex items-center gap-2">
-                                                        <img src={task.assignee?.image} className="size-5 rounded-full" alt="avatar" />
-                                                        {task.assignee?.name || "-"}
+                                                        <img 
+                                                            src={task.assignee?.image || `https://ui-avatars.com/api/?name=${task.assignee?.email || 'U'}&background=random`} 
+                                                            className={`size-6 rounded-full border border-zinc-200 dark:border-zinc-700 ${isDone ? "grayscale" : ""}`} 
+                                                            alt="" 
+                                                        />
+                                                        <span className="truncate max-w-[100px]">
+                                                            {task.assignee?.name || task.assignee?.email?.split('@')[0] || "Unassigned"}
+                                                        </span>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-2">
-                                                    <div className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-                                                        <CalendarIcon className="size-4" />
-                                                        {format(new Date(task.due_date), "dd MMMM")}
-                                                    </div>
+                                                <td className="px-4 py-2 text-zinc-500 whitespace-nowrap">
+                                                    {format(new Date(task.due_date), "dd MMM")}
                                                 </td>
                                             </tr>
                                         );
                                     })
                                 ) : (
-                                    <tr>
-                                        <td colSpan="7" className="text-center text-zinc-500 dark:text-zinc-400 py-6">
-                                            No tasks found for the selected filters.
-                                        </td>
-                                    </tr>
+                                    <tr><td colSpan="7" className="p-10 text-center text-zinc-400">No tasks match your filters.</td></tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
 
-                    {/* Mobile/Card View */}
-                    <div className="lg:hidden flex flex-col gap-4">
-                        {filteredTasks.length > 0 ? (
-                            filteredTasks.map((task) => {
-                                const { icon: Icon, color } = typeIcons[task.type] || {};
-                                const { background, prioritycolor } = priorityTexts[task.priority] || {};
-
-                                return (
-                                    <div key={task.id} className=" dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-300 dark:border-zinc-800 rounded-lg p-4 flex flex-col gap-2">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-zinc-900 dark:text-zinc-200 text-sm font-semibold">{task.title}</h3>
-                                            <input type="checkbox" className="size-4 accent-zinc-600 dark:accent-zinc-500" onChange={() => selectedTasks.includes(task.id) ? setSelectedTasks(selectedTasks.filter((i) => i !== task.id)) : setSelectedTasks((prev) => [...prev, task.id])} checked={selectedTasks.includes(task.id)} />
-                                        </div>
-
-                                        <div className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
-                                            {Icon && <Icon className={`size-4 ${color}`} />}
-                                            <span className={`${color} uppercase`}>{task.type}</span>
-                                        </div>
-
-                                        <div>
-                                            <span className={`text-xs px-2 py-1 rounded ${background} ${prioritycolor}`}>
+                    {/* Mobile View */}
+                    <div className="lg:hidden p-4 flex flex-col gap-4 bg-zinc-50 dark:bg-transparent">
+                        {filteredTasks.map((task) => {
+                            const isDone = task.status === "DONE";
+                            return (
+                                <div 
+                                    key={task.id} 
+                                    className={`rounded-xl p-4 shadow-sm border transition-all
+                                        ${isDone 
+                                            ? "bg-emerald-50/30 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900/50 opacity-75" 
+                                            : "bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-800 shadow-sm"
+                                        }`}
+                                >
+                                    <div className="flex justify-between items-start mb-3">
+                                        <h3 className={`font-semibold ${isDone ? "line-through text-zinc-500" : "text-zinc-900 dark:text-zinc-100"}`}>
+                                            {task.title}
+                                        </h3>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedTasks.includes(task.id)}
+                                            onChange={() => selectedTasks.includes(task.id) ? setSelectedTasks(selectedTasks.filter(id => id !== task.id)) : setSelectedTasks([...selectedTasks, task.id])}
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-xs">
+                                        <div className="flex items-center gap-2">
+                                            <div className={`p-1 px-2 rounded font-bold ${isDone ? "bg-zinc-100 text-zinc-400" : priorityTexts[task.priority]?.background}`}>
                                                 {task.priority}
-                                            </span>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-zinc-400">{task.type}</span>
                                         </div>
-
-                                        <div>
-                                            <label className="text-zinc-600 dark:text-zinc-400 text-xs">Status</label>
-                                            <select name="status" onChange={(e) => handleStatusChange(task.id, e.target.value)} value={task.status} className="w-full mt-1 bg-zinc-100 dark:bg-zinc-800 ring-1 ring-zinc-300 dark:ring-zinc-700 outline-none px-2 py-1 rounded text-sm text-zinc-900 dark:text-zinc-200" >
-                                                <option value="TODO">To Do</option>
-                                                <option value="IN_PROGRESS">In Progress</option>
-                                                <option value="DONE">Done</option>
-                                            </select>
-                                        </div>
-
-                                        <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                            <img src={task.assignee?.image} className="size-5 rounded-full" alt="avatar" />
-                                            {task.assignee?.name || "-"}
-                                        </div>
-
-                                        <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                                            <CalendarIcon className="size-4" />
-                                            {format(new Date(task.due_date), "dd MMMM")}
+                                        <div className="flex items-center gap-2 justify-end">
+                                            <img src={task.assignee?.image || `https://ui-avatars.com/api/?name=${task.assignee?.email}`} className={`size-5 rounded-full ${isDone ? "grayscale" : ""}`} />
+                                            <span className={isDone ? "text-zinc-400" : ""}>{task.assignee?.name || "Unassigned"}</span>
                                         </div>
                                     </div>
-                                );
-                            })
-                        ) : (
-                            <p className="text-center text-zinc-500 dark:text-zinc-400 py-4">
-                                No tasks found for the selected filters.
-                            </p>
-                        )}
+                                </div>
+                            )
+                        })}
                     </div>
                 </div>
             </div>

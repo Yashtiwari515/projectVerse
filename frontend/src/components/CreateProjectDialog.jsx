@@ -1,9 +1,17 @@
 import { useState } from "react";
 import { XIcon } from "lucide-react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import { toast } from "react-hot-toast";
+import api from "../configs/api";
+import { useAuth } from "@clerk/clerk-react";
+import { set } from "date-fns";
+import { addProject } from "../features/workspaceSlice";
 
 const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
+
+    const {getToken} = useAuth()
+    const dispatch = useDispatch()
     const { currentWorkspace } = useSelector((state) => state.workspace);
 
     const [formData, setFormData] = useState({
@@ -22,6 +30,22 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        try{
+            if(!formData.team_lead){
+                return toast.error("Please select a project lead.");
+            }
+            setIsSubmitting(true);
+            const {data} = await api.post("/api/projects/", { workspaceId: currentWorkspace.id, ...formData, }, 
+                {headers: {Authorization: `Bearer ${await getToken()}`}});
+            dispatch(addProject(data))
+            setIsDialogOpen(false);
+            toast.success("Project created successfully!");
+
+        }catch(err){
+            toast.error(err.response?.data?.message || "Failed to create project. Please try again.");
+        }finally{
+            setIsSubmitting(false);
+        }
         
     };
 

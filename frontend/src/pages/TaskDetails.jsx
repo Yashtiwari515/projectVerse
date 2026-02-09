@@ -5,14 +5,17 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CalendarIcon, MessageCircle, PenIcon } from "lucide-react";
 import { assets } from "../assets/assets";
+import { useAuth, useUser } from "@clerk/clerk-react";
+import api from "../configs/api";
 
 const TaskDetails = () => {
-
+    
     const [searchParams] = useSearchParams();
     const projectId = searchParams.get("projectId");
     const taskId = searchParams.get("taskId");
 
-    const user = { id : 'user_1'}
+    const user = useUser();
+    const {getToken} = useAuth();
     const [task, setTask] = useState(null);
     const [project, setProject] = useState(null);
     const [comments, setComments] = useState([]);
@@ -22,22 +25,48 @@ const TaskDetails = () => {
     const { currentWorkspace } = useSelector((state) => state.workspace);
 
     const fetchComments = async () => {
-
+        if(!taskId) return;
+        try {
+            const token = await getToken();
+            const {data} = await api.get(`/api/comments/${taskId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setComments(data|| []);
+        } catch (error) {
+            console.error("Error fetching comments:", error);
+            toast.error(error?.response?.data?.message || "Failed to load comments.");
+        }
     };
 
     const fetchTaskDetails = async () => {
-        setLoading(true);
-        if (!projectId || !taskId) return;
+        try {
+            setLoading(true);
+            if (!taskId) return;
 
-        const proj = currentWorkspace.projects.find((p) => p.id === projectId);
-        if (!proj) return;
+            // 1. Pehle Redux mein check karo (Fast Performance)
+            const projFromRedux = currentWorkspace?.projects?.find((p) => p.id === projectId);
+            const taskFromRedux = projFromRedux?.tasks?.find((t) => t.id === taskId);
 
-        const tsk = proj.tasks.find((t) => t.id === taskId);
-        if (!tsk) return;
-
-        setTask(tsk);
-        setProject(proj);
-        setLoading(false);
+            if (taskFromRedux && projFromRedux) {
+                setTask(taskFromRedux);
+                setProject(projFromRedux);
+                setLoading(false);
+            } else {
+                // 2. Agar reload hua hai aur Redux khali hai, toh direct API call karo
+                const token = await getToken();
+                const { data } = await api.get(`/api/tasks/${taskId}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                
+                // Maan lete hain aapka backend task ke saath project info bhi bhejta hai
+                setTask(data);
+                setProject(data.project); 
+                setLoading(false);
+            }
+        } catch (error) {
+            console.error("Error:", error);
+            setLoading(false);
+        }
     };
 
     const handleAddComment = async () => {
@@ -47,12 +76,13 @@ const TaskDetails = () => {
 
             toast.loading("Adding comment...");
 
-            //  Simulate API call
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-
-            const dummyComment = { id: Date.now(), user: { id: 1, name: "User", image: assets.profile_img_a }, content: newComment, createdAt: new Date() };
+            const token = await getToken();
+            const { data } = await api.post(`/api/comments/${taskId}`, 
+                { content: newComment }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
             
-            setComments((prev) => [...prev, dummyComment]);
+            setComments((prev) => [...prev, data]);
             setNewComment("");
             toast.dismissAll();
             toast.success("Comment added.");
@@ -63,7 +93,7 @@ const TaskDetails = () => {
         }
     };
 
-    useEffect(() => { fetchTaskDetails(); }, [taskId]);
+    useEffect(() => { fetchTaskDetails(); }, [taskId, currentWorkspace]);
 
     useEffect(() => {
         if (taskId && task) {

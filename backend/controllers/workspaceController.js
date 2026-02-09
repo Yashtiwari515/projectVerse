@@ -10,14 +10,21 @@ export const getUserWorkspaces = async (req, res) => {
       },
       include: {
         members: { include: { user: true } },
-        projects: { /* ... your existing include ... */ },
+        projects: { include: {
+        members: {
+          include: {
+            user: true 
+          }
+        },
+        tasks: {include: { assignee: true }}
+      } },
         owner: true,
       },
     });
 
     // 2. AGAR naya user hai aur memberships 0 hain
     if (workspaces.length === 0 && orgId) {
-      console.log("DEBUG: New user detected, finding workspace by Org ID");
+      // console.log("DEBUG: New user detected, finding workspace by Org ID");
       
       // Kyunki schema mein clerkOrgId nahi hai, hum 'owner' ke basis par 
       // us organization ka workspace dhoondenge. 

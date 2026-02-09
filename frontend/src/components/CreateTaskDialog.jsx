@@ -1,9 +1,16 @@
 import { useState } from "react";
 import { Calendar as CalendarIcon } from "lucide-react";
-import { useSelector } from "react-redux";
-import { format } from "date-fns";
+import { useDispatch, useSelector } from "react-redux";
+import { format, set } from "date-fns";
+import { useAuth } from "@clerk/clerk-react";
+import toast from "react-hot-toast";
+import api from "../configs/api";
+import { addTask } from "../features/workspaceSlice";
 
 export default function CreateTaskDialog({ showCreateTask, setShowCreateTask, projectId }) {
+
+    const {getToken} = useAuth();
+    const dispatch = useDispatch();
     const currentWorkspace = useSelector((state) => state.workspace?.currentWorkspace || null);
     const project = currentWorkspace?.projects.find((p) => p.id === projectId);
     const teamMembers = project?.members || [];
@@ -21,8 +28,38 @@ export default function CreateTaskDialog({ showCreateTask, setShowCreateTask, pr
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-
+        setIsSubmitting(true);
+        try {
+            const token = await getToken();
+            const { data } = await api.post('api/tasks', 
+                { ...formData, projectId, workspaceId: currentWorkspace?.id }, 
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const savedTask = data.task || data;
+            const selectedMember = teamMembers.find(m => m.user.id === formData.assigneeId);            
+            const completeTask = {
+                ...savedTask,
+                projectId: projectId,
+                assignee: selectedMember ? selectedMember.user : null 
+            };
+            dispatch(addTask(completeTask));
+            setShowCreateTask(false);
+            setFormData({
+                title: "",
+                description: "",
+                type: "TASK",
+                status: "TODO",
+                priority: "MEDIUM",
+                assigneeId: "",
+                due_date: "",
+            });
+            toast.success("Task created successfully.");
+        } catch (error) {
+            toast.error(error?.response?.data?.message || "Failed to create task.");
+            console.error(error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return showCreateTask ? (

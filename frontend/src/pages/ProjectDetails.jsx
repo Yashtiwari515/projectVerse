@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSelector } from "react-redux";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeftIcon, PlusIcon, SettingsIcon, BarChart3Icon, CalendarIcon, FileStackIcon, ZapIcon } from "lucide-react";
@@ -9,16 +9,22 @@ import ProjectCalendar from "../components/ProjectCalendar";
 import ProjectTasks from "../components/ProjectTasks";
 
 export default function ProjectDetail() {
-
     const [searchParams, setSearchParams] = useSearchParams();
     const tab = searchParams.get('tab');
     const id = searchParams.get('id');
-
     const navigate = useNavigate();
-    const projects = useSelector((state) => state?.workspace?.currentWorkspace?.projects || []);
 
-    const [project, setProject] = useState(null);
-    const [tasks, setTasks] = useState([]);
+    // Direct Redux Selection: Ye hamesha fresh data nikaalega
+    const currentWorkspace = useSelector((state) => state?.workspace?.currentWorkspace);
+    // const projects = currentWorkspace?.projects || [];
+    
+    // Memoized selection: Jab bhi projects update honge, ye khud re-calculate hoga
+    const project = useMemo(() => {
+        if (!currentWorkspace?.projects) return null;
+        return currentWorkspace.projects.find((p) => p.id === id);
+    }, [currentWorkspace, id]);
+    const tasks = useMemo(() => project?.tasks || [], [project]);
+
     const [showCreateTask, setShowCreateTask] = useState(false);
     const [activeTab, setActiveTab] = useState(tab || "tasks");
 
@@ -26,13 +32,7 @@ export default function ProjectDetail() {
         if (tab) setActiveTab(tab);
     }, [tab]);
 
-    useEffect(() => {
-        if (projects && projects.length > 0) {
-            const proj = projects.find((p) => p.id === id);
-            setProject(proj);
-            setTasks(proj?.tasks || []);
-        }
-    }, [id, projects]);
+    // Local project state aur tasks state ko humne hata diya hai taaki Redux hi "Source of Truth" rahe
 
     const statusColors = {
         PLANNING: "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-200",

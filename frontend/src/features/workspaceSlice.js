@@ -4,8 +4,17 @@ import api from "../configs/api";
 
 export const fetchWorkspaces = createAsyncThunk(
   "workspace/fetchWorkspaces",
-  async () => {
-    const { data } = await api.get("/api/workspaces");
+  async (arg) => {
+    // Agar arg object hai (jisme getToken hai), toh use call karein
+    // Agar arg direct token string hai, toh use use karein
+    const token = typeof arg === 'function' ? await arg() : 
+                  arg?.getToken ? await arg.getToken() : arg;
+
+    const { data } = await api.get("/api/workspaces", {
+      headers: {
+        Authorization: `Bearer ${token}`, 
+      },
+    });
     return data.workspaces || [];
   }
 );
@@ -59,7 +68,7 @@ const workspaceSlice = createSlice({
         addTask: (state, action) => {
 
             state.currentWorkspace.projects = state.currentWorkspace.projects.map((p) => {
-                console.log(p.id, action.payload.projectId, p.id === action.payload.projectId);
+                // console.log(p.id, action.payload.projectId, p.id === action.payload.projectId);
                 if (p.id === action.payload.projectId) {
                     p.tasks.push(action.payload);
                 }

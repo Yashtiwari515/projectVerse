@@ -84,7 +84,7 @@ export const createProject = async (req, res) => {
 export const updateProject = async (req, res) => {
   try {
     const { userId } = await req.auth();
-    const { projectId } = req.params;
+    const { id: projectId } = req.params;
     const { name, description, status, start_date, end_date, team_lead, progress, priority } = req.body;
 
     const project = await prisma.project.findUnique({
